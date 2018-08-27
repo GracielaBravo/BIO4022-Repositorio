@@ -1,0 +1,30 @@
+---
+title: "Exploracion"
+author: "Graciela Bravo"
+date: "14 de agosto de 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE)
+```
+```{r}
+library(tidyverse)
+library (knitr)
+library(lubridate)
+madrid_2017 <- read.csv("csvs_per_year/madrid_2017.csv")
+
+madrid_2017 <- read.csv("csvs_per_year/madrid_2017.csv") %>% select(CO, date, station) %>% filter(!is.na(CO) %>% mutate (Mes = month(date))) %>% select(-station)
+```
+
+Este documento realiza una exploración de datos, por ejemplo el promedio de concentracion de monoxido de carbono en Madrid en el año 2017 fue de `r round(mean(madrid_2017 $ CO, na.rm = TRUE), 2)`
+
+En la siguiente tabla tenemos las concentraciones promedio de monoxido de carbono para cada estacion.
+
+```{r}
+Resumen <- madrid_2017 %>% group_by(Mes) %>% select(CO,station) %>% summarise(CO = mean(CO), na.rm = TRUE) 
+kable(Resumen)(caption = "Tabla 1. Media y Desviacion Estandar del monoxido de carbono en distintas estaciones de Madrid", digits = 2)
+```
+
+
+
