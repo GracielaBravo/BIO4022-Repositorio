@@ -1,0 +1,98 @@
+---
+title: "Evaluacion 1 R"
+author: "Graciela Bravo"
+date: "26 de agosto de 2018"
+output: 
+    html_document:
+      fig_caption: yes
+---
+  
+        
+```{r setup, include=FALSE, message = FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = FALSE);
+
+```
+
+```{r, message = FALSE, warning=FALSE}
+library(tidyverse);library(readr);library(ggplot2);library(mapdata);library(maps)
+library(dplyr);library(knitr); library(wesanderson); library(rmdshower)
+
+Parques <- read_csv("biodiversidad/parks.csv")
+Especies <- read_csv("biodiversidad/species.csv") %>% select(c(-X14))
+
+```
+
+## Reporte
+
+
+Es este documento se utilizo una base de datos de biodiversidad de los parques nacionales encontrados en Norte America, especaficamente en aquellos en EE.UU. A continuacion mostramos la ubicacion de estos parques en el siguiente mapa.
+
+
+```{r, fig.cap="Figura 1. Localizacion de los parques nacionales de EE.UU analizados."}
+
+Plotes <- select(Parques, c("Park Name", "Longitude", "Latitude"))
+world_map <- map_data("world")
+ggplot() + geom_map(data = world_map, map = world_map, aes(map_id=region), fill="grey", color="black") + expand_limits(x = world_map$long, y = world_map$lat) + geom_point(data = Plotes, aes(x = Longitude, y = Latitude), col = "red", cex = 3) + coord_fixed(1.3) +  xlim(-170, -50)+ ylim (10, 70) + theme(panel.background = element_blank()) + labs(x = "Longitude", y = "Latitude")
+
+```
+
+
+
+Sorpresivamente encontramos que dos parques nacionales se encuentran en el estado de Hawaii a pesar de ser una zona muy pequeña (28.311 km²), el *Haleakala National Park* y el *Hawaii Volcanoes National Park*.
+
+Al analizar la cantidad de especies encontradas por categoria para estos dos parques, se realizo una tabla con la distribucion de las especies como se muestra a continuacion.
+
+```{r, message=FALSE}
+Categoria_parque <- select(Especies, c("Park Name", "Category"))
+colnames(Categoria_parque) <- c("Park.Name", "Category") 
+Tabla0 <- Categoria_parque %>% group_by(Park.Name, Category)%>% summarise(N=n())
+Tabla1 <- Categoria_parque %>% group_by(Park.Name, Category)%>% summarise(N=n()) %>% spread(key = Park.Name, value = N) %>% select(c("Category","Haleakala National Park", "Hawaii Volcanoes National Park"))
+
+kable(Tabla1, caption = "Tabla 1. Distribucion de las categorias de las especies segun los parques", row.names = FALSE)
+
+Tabla2 <- filter(Tabla0, Park.Name == "Haleakala National Park")
+Tabla3 <- filter(Tabla0, Park.Name == "Hawaii Volcanoes National Park")
+Tabla4 <- rbind(Tabla2,Tabla3) %>% transform(N = as.numeric(N))
+```
+
+
+Lo mismo representado en la Tabla 1 se puede ver de mejor manera representado en el Grafico 1. Como puede observarse la mayor cantidad de especies encontradas para *Haleakala National Park* y *Hawaii Volcanoes National Park* son tanto las especies de plantas vasculares y los insectos.
+
+```{r, fig.cap= "Grafico 1. Distribucion de las especies encontradas en los parques nacionales en Hawaii"}
+
+Grafico1 <- ggplot(Tabla4, aes(x= Park.Name, y = N, fill = Category, color = Category)) + geom_col() + theme_grey()
+Grafico1 + labs(x = "Parks", y = "Distribution") +  scale_x_discrete(labels=c("Haleakala National Park" = "Haleakala", "Hawaii Volcanoes National Park" = "Hawaii Volcanoes")) 
+
+```
+
+Si observamos las especies de **Plantas Vasculares** para ambos parques se aprecian especies que no son nativas de la localidad.
+
+```{r}
+Tabla5 <- select(Especies, c("Park Name", "Category", "Scientific Name", "Common Names", "Nativeness")) %>% filter(Category == "Vascular Plant") 
+colnames(Tabla5) <- c("Park.Name", "Category", "Scientific.Name", "Common.Names", "Nativeness")
+Filtrado <- c("Haleakala National Park", "Hawaii Volcanoes National Park")
+Tabla5 <- filter(Tabla5, Park.Name %in% Filtrado)
+Tabla6 <- Tabla5%>% group_by(Park.Name, Nativeness)%>% summarise(N =n())%>% filter(Nativeness != "Unknown", Nativeness != "NA")
+colnames(Tabla6) <- c("Park","Nativeness","Number of Species") 
+
+kable(Tabla6, caption = "Tabla 2. Plantas Vasculares Nativas y No Nativas")
+
+```
+
+En la Tabla 2, se puede cuantificar un total de **`r round(Tabla6[1,3]/(sum(Tabla6[1,3], Tabla6[2,3]))*100, 2)`%** y un **`r round(Tabla6[3,3]/(sum(Tabla6[3,3], Tabla6[4,3]))*100, 2)`%** de Especies Nativas para los parques *Haleakala National Park* y *Hawaii Volcanoes National Park* respectivamente. Mientras que un **`r round(Tabla6[2,3]/(sum(Tabla6[1,3], Tabla6[2,3]))*100, 2)`%** y un **`r round(Tabla6[4,3]/(sum(Tabla6[3,3], Tabla6[4,3]))*100, 2)`%** de Especies No Nativas de las localidades mencionadas. Se dejaron de lado aquellas especies clasisficadas como *"Unknow"* (18 especies) y aquellas que no tenían datos (1 especie).
+
+Para saber como se clasifican en abundancia las especies nativas y no nativas, se realizó una selección de las especies y su respectiva clasificación como abundante, comun, ocasional, raro y No comun (Figura 2). Como puede verse, la mayoria de las especies Nativas y No Nativas se distribuyen en su mayoria en la clasificacion Raro y No Comun.
+
+```{r, fig.cap= "Figura 2. Abundancia de Especies Nativas y Especies No Nativas"}
+Tabla7 <- select(Especies, c("Park Name", "Category", "Scientific Name", "Common Names", "Nativeness", "Abundance")) %>% filter(Category == "Vascular Plant") 
+colnames(Tabla7) <- c("Park.Name", "Category", "Scientific.Name", "Common.Names", "Nativeness", "Abundance")
+Filtrado <- c("Haleakala National Park", "Hawaii Volcanoes National Park")
+Tabla7 <- filter(Tabla7, Park.Name %in% Filtrado) %>% group_by(Park.Name, Nativeness, Abundance)%>% summarise(N=n()) %>% filter(Abundance != "Unknown", Abundance != "NA")%>% filter(Nativeness != "Unknown", Nativeness != "NA")
+
+ggplot(Tabla7, aes(x = Nativeness, y = N, color = Abundance, fill = Abundance)) + geom_col() + theme_grey() + labs(y = "Number of Species") + facet_wrap(vars(Park.Name))
+
+```
+
+
+Esto es debido a que la mayoria de las especies que tienen estos dos parques son de especies exclusivas y dificiles de encontrar en otras localidades.
+

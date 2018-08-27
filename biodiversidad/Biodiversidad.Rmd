@@ -1,0 +1,23 @@
+---
+title: "Biodiversidad"
+author: "Graciela Bravo"
+date: "14 de agosto de 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE)
+```
+```{r}
+library(tidyverse)
+library (knitr)
+library(lubridate)
+Parques <- read_csv("parks.csv")
+Especies <- read_csv("species.csv")
+```
+Este documento muestra las especies ordenadas de los `r count(Parques)`parques nacionales encontrados en la base de datos.
+
+```{r}
+
+```
+
