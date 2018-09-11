@@ -1,0 +1,141 @@
+library (tidyverse)
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(plyr)
+library(broom)
+library(minpack.lm)
+
+
+
+smokers <- read_csv("Tabaco/smokers.csv")
+prescriptions <- read_csv("Tabaco/prescriptions.csv")
+fatalities <- read_csv("Tabaco/fatalities.csv")
+metrics <- read_csv("Tabaco/metrics.csv")
+admissions <- read_csv("Tabaco/admissions.csv")
+
+#FUMADORES PROMEDIO POR AÑO, EN GRUPOS ETARIOS
+Edad <- smokers %>% select(c("Year","16 and Over", "16-24", "25-34", "35-49","50-59", "60 and Over")) %>% gather(key = Age, value = Value, -Year) 
+Promedio <- ddply(Edad, .(Year, Age), summarise, SD = sd(Value), Mean = mean(Value, 2), SEM = SD/sqrt(3))
+
+#Grafico Fumadores promedio por año en grupos etarios
+Fumadores <- ggplot(Promedio, aes(x = Year, y = Mean)) + geom_errorbar(aes(ymin=Mean-SEM, ymax=Mean+SEM), width=.2, position=position_dodge(0.05)) + geom_line(aes(color=Age), size = 1.2)+ geom_point(aes(col = Age)) + theme_bw()
+Fumadores + scale_x_continuous(name="Years", limits=c(1972, 2015)) + scale_y_continuous(name = "Mean of Cases", limits = c(10, 60)) 
+
+#Grafico Fumadores Promedio por Genero (F/M)
+Genero <- smokers %>% select(c("Year","Sex","16 and Over", "16-24", "25-34", "35-49","50-59", "60 and Over")) %>% gather(key = Age, value = Value, -Year, -Sex)
+Genero <- na.omit(Genero)
+ggplot(Genero, aes(x = Year, y = Value, color = Sex, group = Sex)) + geom_line(size = 1.2) + facet_wrap(vars(Age)) + scale_x_continuous(name="Years", limits=c(1972, 2015)) + scale_y_continuous(name = "Number of Cases", limits = c(10, 60)) + theme_bw()
+
+#PRESCRIPCIONES DADAS A FUMADORES
+#Grafico Prescripciones para tratamientos (NRT/Bupropion/Varenicline) para fumadores
+
+#Ordenar todo
+PorcenPrescrip <- prescriptions %>% select(c("Year", "All Pharmacotherapy Prescriptions", "Nicotine Replacement Therapy (NRT) Prescriptions", "Bupropion (Zyban) Prescriptions", "Varenicline (Champix) Prescriptions"))
+colnames(PorcenPrescrip) <- c("Year", "All Pharmacotherapy Prescriptions", "Nicotine Replacement Therapy (NRT)", "Bupropion (Zyban)", "Varenicline (Champix)")
+
+TotalFarma <-PorcenPrescrip$`All Pharmacotherapy Prescriptions`
+NumFilas <- nrow(PorcenPrescrip)
+NTR <- PorcenPrescrip$`Nicotine Replacement Therapy (NRT)`
+Bupropion <- PorcenPrescrip$`Bupropion (Zyban)`
+Varenicline <- PorcenPrescrip$`Varenicline (Champix)`
+
+OutPut <- matrix(ncol = 3, nrow = NumFilas)
+for (i in 1:NumFilas) {
+  NRT_Percent <-(NTR[i]/TotalFarma[i] * 100)
+  OutPut [i,1] <-(NRT_Percent)
+  Bupropion_Percent <- (Bupropion[i]/TotalFarma[i]*100)
+  OutPut [i,2] <- Bupropion_Percent
+  Varenicline_Percent <- (Varenicline[i]/TotalFarma[i]*100)
+  OutPut [i,3] <- Varenicline_Percent
+}
+Percentage <- data.frame(OutPut)
+colnames(Percentage) <- c("NRT","Bupropion", "Varenicline")
+Percentage <- format(Percentage, digits = 2, nsmall = 2)
+compilado <- cbind(PorcenPrescrip, Percentage) %>% select(c("Year", "NRT","Bupropion", "Varenicline")) %>% gather(key = Prescription, value = Percentage, -Year)
+compilado$Percentage <- as.numeric(as.character(compilado$Percentage))
+compilado <- na.omit(compilado)
+#Ahora el grafico
+ggplot (compilado, aes(x = Year , y = Percentage, fill = Prescription)) + geom_col(alpha = 0.5) + xlab("Year") + ylab("Prescriptions (%)") + theme(legend.position = "bottom") + coord_flip() + guides(fill=guide_legend(title=NULL))
+
+# NUMERO DE ADMISIONES CAUSADAS POR FUMAR Y LA ENFERMEDAD ASOCIADA
+#Limpiar todo
+AdmFumar <- admissions %>% select(c("Year", "Metric", "ICD10 Diagnosis","Diagnosis Type", "Sex","Value")) %>% na.omit(AdmFumar)
+AdmFumar <- AdmFumar %>% filter(Metric == "Number of admissions") %>% select(-c("Metric", "Year"))
+AdmFumar <- AdmFumar %>% filter(grepl('smoking', `Diagnosis Type`)) %>% filter(!grepl("All", `Diagnosis Type`))
+AdmFumar$Value <- as.numeric(as.character(AdmFumar$Value))
+AdmFumar <- na.omit(AdmFumar)
+#El grafico
+ggplot(AdmFumar, aes(x = factor(`ICD10 Diagnosis`), y = Value, fill = `Diagnosis Type`)) + geom_boxplot() + scale_y_continuous(name="Number of Admissions", limits=c(min(AdmFumar$Value), max(AdmFumar$Value)), labels = scales::unit_format("K", 1e-3)) + coord_flip() + xlab("Diseases")
+
+#MODELO ESTADISTICO SIMPLE PRECIO DEL CIGARRO VS PERSONAS FUMADORAS
+
+#Primero Cantidad de Fumadores totales, la media es cuantos el promedio de ellos entre Hombres, Mujeres y NA
+CantFumadores <- smokers %>% select(-c(Method, Sex))
+CantFumadores <- mutate(CantFumadores, total = rowSums(CantFumadores[, 2:7])) %>% select(c("Year", "total"))
+CantFumadores <- ddply(CantFumadores, .(Year), summarise, "Total Smokers" = sum(total), Mean = mean(total), SD = sd(total))
+
+#Precio del Tabaco con el tiempo
+Precio <- metrics %>% select(c(Year, "Tobacco Price\nIndex")) 
+colnames(Precio) <- c("Year", "Price")
+Precio <- Precio[-c(1), ] 
+Precio$Price <- as.numeric(as.character(Precio$Price))
+Precio <- ddply(Precio, .(Year), summarise, "Mean Price" = mean(Price))
+
+#Juntar valores de Fumadores totales vs Precio del Tabaco
+CantidadFumadores <- select(CantFumadores, c(Year, "Total Smokers"))
+AñoPrecio <- select(Precio, c(Year, "Mean Price"))
+Juntar <- merge(CantidadFumadores,AñoPrecio)
+colnames(Juntar) <- c("Year", "Smokers", "Price")
+
+#Label Equacion R2
+lm_eqn <- function(Juntar){
+  m <- lm(Smokers ~ Price + I(Price^2), Juntar);
+  eq <- substitute(italic(y) == a - b %.%italic(x)* + c%.%italic(x)^2*" ,"~~italic(R)^2~"="~r2, #*","~~~italic(p)~"="~pvalue, 
+                   list(a = format(as.vector(coef(m)[1]), digits = 2),
+                        b = format(abs(as.vector(coef(m)[2])), digits = 2),
+                        c = format(as.vector(coef(m)[3]), digits = 2),
+                        r2 = format(summary(m)$r.squared, digits = 3)))
+                        #pvalue = format(summary(m)$coefficients[2,'Pr(>|t|)'], digits=1)))
+  as.character(as.expression(eq));                 
+}
+#Label Equacion2 R2
+lm_eqn2 <- function(Juntar){
+  m <- nlsLM(Smokers ~ a*Price^b, data=Juntar, start = list(a=1,b=1));
+  eq <- substitute(italic(y) == a %.%italic(x)^(-b)* " ",
+                   list(a = format(as.vector(coef(m)[1]), digits = 2),
+                        b = format(abs(as.vector(coef(m)[2])), digits = 2)))
+  as.character(as.expression(eq));                 
+}
+
+#Grafico
+ggplot(Juntar, aes(x = Price, y = Smokers)) + geom_point() + stat_smooth(method = "lm", formula = y ~ x, col = "red", se = FALSE) + stat_smooth(method = "lm", formula = y ~ x + I(x^2), col = "blue", se = FALSE) +  geom_text(x = 700, y = 700, label = lm_eqn(Juntar), parse = TRUE) + stat_smooth(method="nlsLM", formula = y ~ a*x^(b), start = list(a = 2452, b = -0.27), se = FALSE, col = "green") + geom_text(x = 680, y = 600, label = lm_eqn2(Juntar), parse = TRUE)
+
+#FIT ESTADISTICO
+Fit1 <- lm(Smokers ~ Price, data = Juntar)
+Fit2 <- lm(Smokers ~ Price + I(Price^2), data = Juntar)
+Fit3 <- nlsLM(Smokers ~ a*Price^b, data=Juntar, start = list(a=1,b=1))
+summary(Fit3)
+Fit3_data <- augment(Fit3)
+
+plot(Smokers~ Price, data=Fit3_data)
+
+InfoFit1 <-glance(Fit1)
+InfoFit2 <- glance(Fit2)
+InfoFit3 <- glance(Fit3) %>% select(c("AIC")) 
+
+InfoFit12 <- rbind(InfoFit1, InfoFit2) %>% select(c("AIC"))
+row.names(InfoFit12) <- NULL
+InformacionAIC <- rbind(InfoFit12, InfoFit3)
+
+
+ParametrosModelo1 <- tidy(Fit1)
+ParametrosModelo2 <- tidy(Fit2)
+ParametrosModelo3 <- tidy(Fit3)
+
+Parametros <- rbind(ParametrosModelo1, ParametrosModelo2)
+Parametros <- rbind(Parametros, ParametrosModelo3)
+
+
+summary(Fit3)
+summary(Fit2)
