@@ -1,0 +1,300 @@
+---
+title: "Informe sobre consumo y admisiones hospitalarias causadas por el Tabaco"
+author: "Graciela Bravo"
+date: "11 de septiembre de 2018"
+output: pdf_document
+bibliography: BibliografiaEvaluacion3.bib
+---
+
+```{r setup, include=FALSE, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(lubridate)
+library(tidyverse)
+library(readr)
+library(ggplot2)
+library(plyr)
+library(knitr)
+library(dplyr)
+library(broom)
+library(minpack.lm)
+library(captioner)
+library(latexpdf)
+
+
+smokers <- read_csv("Tabaco/smokers.csv")
+prescriptions <- read_csv("Tabaco/prescriptions.csv")
+fatalities <- read_csv("Tabaco/fatalities.csv")
+metrics <- read_csv("Tabaco/metrics.csv")
+admissions <- read_csv("Tabaco/admissions.csv")
+```
+
+```{r}
+#Por problemas con fig_caption
+set.seed(1703)
+fig_cap <- captioner::captioner("Figura")
+tab_cap <- captioner::captioner("Tabla")
+```
+
+```{r, echo=FALSE}
+#FUMADORES PROMEDIO POR AÑO, EN GRUPOS ETARIOS
+Edad <- smokers %>% select(c("Year","16 and Over", "16-24", "25-34", "35-49","50-59", "60 and Over")) %>% gather(key = Age, value = Value, -Year) 
+Promedio <- ddply(Edad, .(Year, Age), summarise, SD = sd(Value), Mean = mean(Value, 2), SEM = SD/sqrt(3))
+
+#Grafico Fumadores promedio por año en grupos etarios
+Fumadores <- ggplot(Promedio, aes(x = Year, y = Mean)) + geom_errorbar(aes(ymin=Mean-SEM, ymax=Mean+SEM), width=.2, position=position_dodge(0.05)) + geom_line(aes(color=Age), size = 1.2)+ geom_point(aes(col = Age))
+Fumadores <- Fumadores + scale_x_continuous(name="Años", limits=c(1972, 2015)) + scale_y_continuous(name = "Número de Casos", limits = c(10, 60)) + guides(color=guide_legend(title="Grupo Etario")) + scale_colour_discrete( breaks = c("16 and Over", "16-24", "25-34", "35-49","50-59", "60 and Over"), labels = c("Menos de 16", "16-24", "25-34", "35-49","50-59", "Más de 60"))
+```
+
+```{r, echo=FALSE}
+#Fumadores Promedio por Genero (F/M)
+Genero <- smokers %>% select(c("Year","Sex","16 and Over", "16-24", "25-34", "35-49","50-59", "60 and Over")) %>% gather(key = Age, value = Value, -Year, -Sex)
+Genero <- na.omit(Genero)
+#Grafico
+Graph_Genero <- ggplot(Genero, aes(x = Year, y = Value, color = Age, group = Age))+ scale_x_continuous(name="Años", limits=c(1972, 2015)) + scale_y_continuous(name = "Número de Casos", limits = c(10, 60)) + guides(color=guide_legend(title="Grupo Etario")) + scale_colour_discrete( breaks = c("16 and Over", "16-24", "25-34", "35-49","50-59", "60 and Over"), labels = c("Menos de 16", "16-24", "25-34", "35-49","50-59", "Más de 60")) + geom_smooth(method = "lm", formula = y~x + I(x^2)) 
+#Graph_Genero + theme(legend.position = "bottom")
+labels <- c(Female = "Mujeres", Male = "Hombres")
+Graph_Genero <- Graph_Genero + facet_grid(~Sex, labeller=labeller(Sex = labels))
+```
+
+```{r, warning=FALSE, echo=FALSE, message=FALSE}
+#Ordenar todo
+PorcenPrescrip <- prescriptions %>% select(c("Year", "All Pharmacotherapy Prescriptions", "Nicotine Replacement Therapy (NRT) Prescriptions", "Bupropion (Zyban) Prescriptions", "Varenicline (Champix) Prescriptions"))
+colnames(PorcenPrescrip) <- c("Year", "All Pharmacotherapy Prescriptions", "Nicotine Replacement Therapy (NRT)", "Bupropion (Zyban)", "Varenicline (Champix)")
+Prescrips <- PorcenPrescrip %>% gather(key = Tratamiento , value = c(`Nicotine Replacement Therapy (NRT)`,`Bupropion (Zyban)`, `Varenicline (Champix)`), -Year, - `All Pharmacotherapy Prescriptions`)
+colnames(Prescrips) <- c("Year", "Total Prescripciones", "Prescripcion", "Numero")
+Prescrips$Numero <- replace_na(Prescrips$Numero, 0)
+#GRAFICO
+Graph_Prescrip <- ggplot(Prescrips) + geom_col(aes(x = Year, y = Numero, fill = Prescripcion), position = "dodge") + theme_bw() + xlab("Años") + ylab("Numero de Prescripciones") + theme(legend.position = "bottom") + coord_flip() + guides(fill=guide_legend(title=NULL)) + scale_fill_discrete(labels= c("Bupropion","NRT", "Vareniclina"))
+
+TotalFarma <-PorcenPrescrip$`All Pharmacotherapy Prescriptions`
+NumFilas <- nrow(PorcenPrescrip)
+NTR <- PorcenPrescrip$`Nicotine Replacement Therapy (NRT)`
+Bupropion <- PorcenPrescrip$`Bupropion (Zyban)`
+Varenicline <- PorcenPrescrip$`Varenicline (Champix)`
+
+OutPut <- matrix(ncol = 3, nrow = NumFilas)
+for (i in 1:NumFilas) {
+  NRT_Percent <-(NTR[i]/TotalFarma[i] * 100)
+  OutPut [i,1] <-(NRT_Percent)
+  Bupropion_Percent <- (Bupropion[i]/TotalFarma[i]*100)
+  OutPut [i,2] <- Bupropion_Percent
+  Varenicline_Percent <- (Varenicline[i]/TotalFarma[i]*100)
+  OutPut [i,3] <- Varenicline_Percent
+}
+Percentage <- data.frame(OutPut)
+colnames(Percentage) <- c("NRT","Bupropion", "Varenicline")
+Percentage <- format(Percentage, digits = 2, nsmall = 2)
+compilado <- cbind(PorcenPrescrip, Percentage) %>% select(c("Year", "NRT","Bupropion", "Varenicline")) %>% gather(key = Prescription, value = Percentage, -Year)
+compilado$Percentage <- as.numeric(as.character(compilado$Percentage))
+compilado <- na.omit(compilado)
+
+nrt <- compilado %>% filter(Year == "2014/15" | Year == "2013/14")%>%group_by(Prescription) %>% filter(Prescription == "NRT") %>% summarise(Mean = mean(Percentage))
+Vare <- compilado %>% filter(Year == "2014/15" | Year == "2013/14")%>%group_by(Prescription) %>% filter(Prescription == "Varenicline") %>% summarise(Mean = mean(Percentage))
+Bup <- compilado %>% filter(Year == "2014/15" | Year == "2013/14")%>%group_by(Prescription) %>% filter(Prescription == "Bupropion") %>% summarise(Mean = mean(Percentage))
+
+```
+
+```{r, warning=FALSE}
+#Limpiar todo
+AdmFumar <- admissions %>% select(c("Year", "Metric", "ICD10 Diagnosis","Diagnosis Type", "Sex","Value")) %>% na.omit(AdmFumar)
+AdmFumar <- AdmFumar %>% filter(Metric == "Number of admissions") %>% select(-c("Metric", "Year"))
+AdmFumar <- AdmFumar %>% filter(grepl('smoking', `Diagnosis Type`)) %>% filter(!grepl("All", `Diagnosis Type`))
+AdmFumar$Value <- as.numeric(as.character(AdmFumar$Value))
+AdmFumar <- na.omit(AdmFumar)
+colnames(AdmFumar) <- c("ICD10", "Diagnosis", "Sex", "Value")
+
+#El grafico
+Graph_Admitions <- ggplot(AdmFumar, aes(x = factor(`ICD10`), y = Value, fill = `Diagnosis`)) + geom_boxplot() + scale_y_continuous(name="Número de  Admisiones", limits=c(min(AdmFumar$Value), max(AdmFumar$Value)), labels = scales::unit_format("K", 1e-3)) + coord_flip() + xlab("Enfermedades") + guides(fill=guide_legend(title=NULL, ncol=2)) + scale_fill_discrete(breaks = c("Cancers which can be caused by smoking","Circulatory diseases which can be caused by smoking", "Digestive diseases which can be caused caused by smoking", "Respiratory diseases which can be caused by smoking", "Other diseases which can be caused by smoking"), labels= c("Cancer","Sist.Circulatorio", "Sist.Digestivo", "Sist. Respiratorio","Otros")) + theme(legend.position = "bottom")
+
+#Resp <-AdmFumar %>% filter(`ICD10 Diagnosis` == "Pneumonia, Influenza") %>% summarise(Suma = sum(Value))
+#Heart <- filter(AdmFumar, grepl("Heart Disease", `ICD10 Diagnosis`)) %>% summarise(Suma = sum(Value))
+```
+
+```{r, message=FALSE, warning=FALSE}
+#Primero Cantidad de Fumadores totales, la media es cuantos el promedio de ellos entre Hombres, Mujeres y NA
+CantFumadores <- smokers %>% select(-c(Method, Sex))
+CantFumadores <- mutate(CantFumadores, total = rowSums(CantFumadores[, 2:7])) %>% select(c("Year", "total"))
+CantFumadores <- ddply(CantFumadores, .(Year), summarise, "Total Smokers" = sum(total), Mean = mean(total), SD = sd(total))
+
+#Precio del Tabaco con el tiempo
+Precio <- metrics %>% select(c(Year, "Tobacco Price\nIndex")) 
+colnames(Precio) <- c("Year", "Price")
+Precio <- Precio[-c(1), ] 
+Precio$Price <- as.numeric(as.character(Precio$Price))
+Precio <- ddply(Precio, .(Year), summarise, "Mean Price" = mean(Price))
+
+#Juntar valores de Fumadores totales vs Precio del Tabaco
+CantidadFumadores <- select(CantFumadores, c(Year, "Total Smokers"))
+APrecio <- select(Precio, c(Year, "Mean Price"))
+Juntar <- merge(CantidadFumadores,APrecio)
+colnames(Juntar) <- c("Year", "Smokers", "Price")
+
+
+#Label Equacion R2
+#lm_eqn <- function(Juntar){
+#  m <- lm(Smokers ~ Price + I(Price^2), Juntar);
+#  eq <- substitute(italic(y) == a - b %.%italic(x)* + c%.%italic(x)^2*" #,"~~italic(R)^2~"="~r2, #*","~~~italic(p)~"="~pvalue, 
+#                   list(a = format(as.vector(coef(m)[1]), digits = 2),
+#                        b = format(abs(as.vector(coef(m)[2])), digits = 2),
+#                        c = format(as.vector(coef(m)[3]), digits = 2),
+#                        r2 = format(summary(m)$r.squared, digits = 3)))
+                        #pvalue = format(summary(m)$coefficients[2,'Pr(>|t|)'], digits=1)))
+#  as.character(as.expression(eq));                 
+#}
+#Label Equacion2
+#lm_eqn2 <- function(Juntar){
+#  m <- nlsLM(Smokers ~ a*Price^b, data=Juntar, start = list(a=1,b=1));
+#  eq <- substitute(italic(y) == a %.%italic(x)^(-b)* " ",
+#                   list(a = format(as.vector(coef(m)[1]), digits = 2),
+#                        b = format(abs(as.vector(coef(m)[2])), digits = 2)))
+#  as.character(as.expression(eq));                 
+#}
+
+#Grafico
+Graph_Tendence <- ggplot(Juntar, aes(x = Price, y = Smokers)) + geom_point() +  stat_smooth(method="nlsLM", formula = y ~ a*x^(b), start = list(a = 2452, b = -0.27), se = FALSE, col = "green") +  scale_x_continuous(name = "Valor del Precio") + scale_y_continuous(name = "Fumadores")
+```
+
+```{r, message=FALSE, warning=FALSE}
+Fit1 <- lm(Smokers ~ Price, data = Juntar)
+Fit2 <- lm(Smokers ~ Price + I(Price^2), data = Juntar)
+Fit3 <- nlsLM(Smokers ~ a*Price^b, data=Juntar, start = list(a=1,b=1))
+
+InfoFit1 <-glance(Fit1) %>% select(-c("statistic", "logLik", "p.value"))
+InfoFit2 <- glance(Fit2) %>% select(-c("statistic", "logLik", "p.value"))
+InfoFit3 <- glance(Fit3) %>% select(-c("logLik", "isConv"))
+
+InfoFit12 <- rbind(InfoFit1, InfoFit2)
+row.names(InfoFit12) <- NULL
+```
+
+##Resumen
+
+En este informe se entrega un análisis utilizando los datos del consumo de tabaco y  hospitales de Inglaterra con enfermedades asociadas al consumo. En una primera instancia se evaluó como ha cambiado el consumo en el tiempo por grupo etario y por género. Además de comparar modelos estadísticos para describir la relación entre el valor del precio del cigarillo y el número de fumadores. En una segunda instancia, se evaluó como han cambiado las terapias farmacológicas prescritas por los hospitales, así como también el número de admisiones hospitalarias relacionadas con enfermedades vinculadas al consumo de tabaco.
+
+## Introdución
+
+El consumo del tabaco, especificamente cigarrillos, aun es una de las causas prevalentes de muerte en los Estados Unidos e Inglaterra, a pesar de que la prevalencia del consumo y las cantidades de alquitrán en la manofactura de cigarros ha decrecido. Entre las enfermedades con mayor mortalidad que se ven afectadas y agravadas por el tabaquismo, se encuentran el cáncer al pulmón, enfermedad pulmonar crónica, enfermedades cardiacas, accidentes cerebrovasculares y otras enfermedades neoplásticas, respiratorias y vasculares [@pirie2013]. 
+
+Se ha visto que una medida de control para el consumo utilizada por los paices ha sido la entrega de publicidad sobre las enfermedades causadas o agrabadas por el tabaco como una medida preventiva, aunque se ha establecido esto como una medida insuficiente. Por lo que, el impacto del precio del tabaco y los cambios en el comportamiento de los consumidores entre los diferentes grupos sociales se ha convertido en una prioridad para las políticas de salud pública. 
+
+Es importante destacar también que el aumento en los impuestos y valor del tabaco como producto en el país a pesar de tener dos impactos: Por un lado, dada la tecnología sin cambios, se reducira el consumo y la producción de tabaco y, por lo tanto, se reduciría tanto la producción nacional como el empleo; Por otro lado, el dinero liberado del consumo de tabaco se puede reasignar a otros bienes y servicios, por lo que la producción de estos sectores aumentaría y el empleo nacional aumentaría correspondientemente. Se ha visto que en otros paices estos dos impactos son importantes a considerar al momento de decidir el alza de impuesto del tabaco, pero en paices donde esto se ha implementado los resultados han dado impactos netos tanto en el producto nacional como en el empleo positivos[@hien2014].
+
+En Japón se realizó la medida de aumentar los precios del tabaco el año 2010, mostrando que la prevalencia del tabaquismo en adultos ha disminuido: la proporción de fumadores actuales ha disminuido del 48% en el 2001 al 33% en el 2010 entre los hombres, y del 14% en el 2001 al 10% en el 2010 entre las mujeres [@tabuchi2016].
+
+Sin embargo, a pesar de estas medidas, la prevalencia del cigarrillo persiste. Y muchos de los admitidos en hospitales por una enfermedad, normalmente estan asociados al consumo del tabaco. En Estados Unidos, muchos pacientes continuan fumando aún con el conocimiento o experimentando las consecuencias del consumo de tabaco. Y aquellos que quieren dejar el consumo en su mayoría fallan debido a la falta de terapias que acompañen el proceso [@rigotti2002].
+
+\pagebreak
+
+Entre las estrategias farmacológicas para ayudar al tratamiento de las personas fumadoras, la FDA (*Food and Drug Administration*) ha aprobado productos para detener el consumo. Entre ellos estan:
+
+1. Las terapias de remplazo de nicotina (*Nicotine-Replacement Therapy*, NRT), proporcionan una forma alternativa de nicotina para aliviar los síntomas de abstinencia al consumo. Las propiedades farmacocinéticas de liberación de nicotina son más lentas a la circulacion comparado con la inhalación del humo del cigarrillo [@hughes1999].
+
+2. El Bupropion en un agente no-nicotínico se ha usado ampliamente como un antidepresivo, y se cree que bloquea la actividad de receptores de nicotina y, por lo tanto, detiene las propiedades de refuerzo del tabaquismo. También se cree que aumenta los niveles cerebrales de dopamina y norepinefrina que simulan los efectos de la nicotina. Normalmente se utiliza en terapias combinadas con las NRT [@bozinoff2018].
+
+3. Vareniclina un agente no-nicotínico es capaz de reducir los antojos y reducir los síntomas de abstinencia, se cree que es posiblemente por generar un aumento en los niveles de Dopamina, siendo un agonista parcial de los receptores nAChR, a los cuales se unen a nicotina, logrando reducir los efectos de refuerzo del tabaco, facilitando los intentos de cese de consumo [@bozinoff2018].
+
+En este trabajo se busca analizar los datos obtenidos para Reino Unido sobre los fumadores de tabaco y enfermedades asociadas al cigarrillo. Realizando una exploración de datos y variables que influyen en el consumo.
+
+\pagebreak
+
+##Metodología
+
+En este trabajo se utilizaron los datos de admisiones a hospitales por diagnóstico primario de enfermedades relacionadas con el consumo del tabaco en Inglaterra, encontradas en la base de datos Kaggle. En ésta se encuentran los datos de consumo y de mortalidad asociados al tabaco que fue publicada previamente en el *Health and Social Care Information Centre* (HSCIC), del Departamento de Salud, de la Oficina Nacional de Estadísticas. Para más detalles sobre los datos analisados <https://www.kaggle.com/nhs/tobacco-use>.
+
+Posterior a ello, se realizó una exploración de los datos, en los cuales se realizó una selección para hacer los análisis dependiendo de las variables de interes, entre las variables analizadas estan los años de observación y recolección de datos, el grupo etario, el sexo y el numero de admisiones a hospitales.
+
+Para responder a cuales enfermedades son las relacionadas con el consumo de cigarro, en primer lugar se examinaron la cantidad de admisiones hospitalarias, posteriormente se observaron las enferemedades específicas y se clasisficaron según su ICD-10 (*International Classification of Diseases 10th revision*) entregada por la Organización Mundial de la Salud (WHO, *World Health Organization*) buscando clasificar las enfermedades que estan asociadas al consumo de tabaco.
+
+Para el modelo estadístico simple, se utilizaron los datos de Valor de Precio del cigarrillo reportado y el Número de Fumadores en el tiempo. Se evaluaron 3 modelos estadísticos:
+
+1. *Modelos lineales simples*
+
+    Modelo 1 utilizando la ecuación $Y = m * X + C$
+    
+    Modelo 2 utilizando la ecuación $Y = A*X^2 + B*X + C$
+    
+2. *Modelo no lineal simple* 
+
+    Modelo 3 uzilizando la ecuación $Y = A*X^b$
+
+Se observaron los parámetros de cada uno de los modelos, y se determinó cual fue el modelo que más representaba el comportamiento de los datos al realizarse el cálculo de AIC (Criterio de Información de Akaike). Mientras menor el valor AIC se determinó que el modelo representaba de manera adecuada el comportamiento de los datos.
+
+Para la realización de este trabajo se utilizaron las herramientas del software libre R[@RTeam], en particular el paquete min.pack.lm [@Elzhov2016]
+
+\pagebreak
+
+##Resultados
+
+###Comparación en el tiempo de fumadores por grupo etario y sexo
+
+Se realizó  una selección y limpieza de los datos. En primer lugar se analizó la cantidad de fumadores totales reportados entre los años 1974 y 2014 (Figura 1). Como puede observarse ha habido un decenso evidente de la cantidad de fumadores con los años para todos los grupos etarios. Al analizar la cantidad de fumadores y la cantidad de fumadores en el 2014 vemos que este descenso ha sido de un `r round(((((100 - (Promedio[163,4]/(Promedio[1,4])*100))+ (100 - (Promedio[164,4]/(Promedio[2,4])*100)) + (100 - (Promedio[165,4]/(Promedio[3,4])*100)) + (100 - (Promedio[166,4]/(Promedio[4,4])*100))+ (100 - (Promedio[167,4]/(Promedio[5,4])*100))+ (100 - (Promedio[168,4]/(Promedio[6,4])*100)))/6)), 2)`%. Esto condice con los datos registrados en otros paises en los han realizado medidas preventivas del consumo de tabaco. 
+
+```{r, out.width="80%", fig.align="center"}
+plot(Fumadores)
+```
+`r fig_cap(1, caption = "Fumadores por grupo etario entre los años 1974 y 2014. En colores estan categorizados los grupos etarios en el tiempo para los totales de los individuos con sus respectivos SEM (Error estándar medio).", display = "full")`   
+
+Sin embargo, sigue presente una gran cantidad de consumidores menores a 16 años llegando a un `r round((Promedio %>% filter(Year == "2014") %>% group_by(Year)%>% mutate(Pct = (Mean/sum(Mean))*100) %>% filter(Age == "16 and Over"))$Pct, 2)`%, mientras que los jóvenes entre 16 y 24 años llegan a un `r round((Promedio %>% filter(Year == "2014") %>% group_by(Year)%>% mutate(Pct = (Mean/sum(Mean))*100) %>% filter(Age == "16-24"))$Pct, 2)`%, siendo un total del `r (round(Promedio %>% filter(Year == "2014") %>% group_by(Year)%>% mutate(Pct = (Mean/sum(Mean))*100) %>% filter(Age == "16-24"|Age == "16 and Over") %>% summarise(n = sum(Pct)),2))`%  de la población joven que consume cigarrillo a temprana edad.
+
+
+```{r, out.width="80%", fig.align="center"}
+plot (Graph_Genero)
+```
+`r fig_cap(2, caption = "Distinciones entre hombres y mujeres fumadores entre los años 1974 y 2014 separados por sus respectivos grupos etarios.", display = "full")`
+
+Al analizar estas bajas con las diferencias de los sexos de los consumidores se puede ver que esta tendencia se mantiene (Figura 2). Sin embargo, se puede ver que en 40 años, mujeres y hombres han llegado a valores similares de grupos etarios de fumadores, siendo los el grupo etario de 60 años o más aquellos que han disminuido de manera dramática en 40 años. En el caso de los hombres pasando de un `r round((Genero %>% filter(Year == "1974" | Year == "2014") %>% filter(Sex == "Male" & Age =="60 and Over") %>% mutate(Pct = (Value/sum(Value)*100)))$Pct[1], 2)`% a un `r round((Genero %>% filter(Year == "1974" | Year == "2014") %>% filter(Sex == "Male" & Age =="60 and Over") %>% mutate(Pct = (Value/sum(Value)*100)))$Pct[2], 2)`%. Mientras que las mujeres de 60 años o más han disminuido de un `r round((Genero %>% filter(Year == "1974" | Year == "2014") %>% filter(Sex == "Female" & Age =="60 and Over") %>% mutate(Pct = (Value/sum(Value)*100)))$Pct[1], 2)`% a un `r round((Genero %>% filter(Year == "1974" | Year == "2014") %>% filter(Sex == "Female" & Age =="60 and Over") %>% mutate(Pct = (Value/sum(Value)*100)))$Pct[2], 2)`%. Sin embargo puede verse que hay una mayor cantidad de hombres que mujeres fumadores para cada uno de los niveles mostrando un aumento en un `r paste0(round((Genero %>% filter(Year == "2014"& Age=="16 and Over") %>% mutate(pct = Value/sum(Value)*100) %>% mutate(min = abs(pct - max(pct))) %>% filter(Sex == "Female"))$min, 2), "%")`, `r paste0(round((Genero %>% filter(Year == "2014"& Age=="16-24") %>% mutate(pct = Value/sum(Value)*100) %>% mutate(min = abs(pct - max(pct))) %>% filter(Sex == "Female"))$min, 2), "%")`, `r paste0(round((Genero %>% filter(Year == "2014"& Age=="25-34") %>% mutate(pct = Value/sum(Value)*100) %>% mutate(min = abs(pct - max(pct))) %>% filter(Sex == "Female"))$min, 2), "%")`, `r paste0(round((Genero %>% filter(Year == "2014"& Age=="35-49") %>% mutate(pct = Value/sum(Value)*100) %>% mutate(min = abs(pct - max(pct))) %>% filter(Sex == "Female"))$min, 2), "%")`, `r paste0(round((Genero %>% filter(Year == "2014"& Age=="50-59") %>% mutate(pct = Value/sum(Value)*100) %>% mutate(min = abs(pct - max(pct))) %>% filter(Sex == "Female"))$min, 2), "%")` y `r paste0(round((Genero %>% filter(Year == "2014"& Age=="60 and Over") %>% mutate(pct = Value/sum(Value)*100) %>% mutate(min = abs(pct - max(pct))) %>% filter(Sex == "Female"))$min, 2), "%")` para los grupos en edades en aumento respectivamente.
+
+Estos drásticos descensos coinciden con las medidas tomadas por el gobierno de UK, en donde los impuestos específicos y *ad valorem* (impuesto basado en la valorización del bien) sobre los cigarrillos se introdujeron en 1976 para facilitar la armonización fiscal dentro de la Comunidad Económica Europea (CEE) [@world2003]. 
+
+\pagebreak
+
+###Prescripciones utilizadas en el tiempo
+```{r, out.width="80%", fig.align="center"}
+plot (Graph_Prescrip)
+```
+`r fig_cap(3, caption = "Evolución de las prescripciones entregadas por hospitales para fumadores entre los años 2004 y 2015. NRT: Tratamiento con remplazantes nicotínicos.", display = "full")`
+
+En cuanto a las prescripciones entregadas por los hospitales, se puede ver que la prescripción más usada para el tratamiento para fumadores ha sido los NRT los ultimos dos años de estudio llegando a un pocentaje de `r nrt`%. Sin embargo la Vareniclina ha avanzado en el mercado llegando a un `r  Vare` % de las prescripciones y observamos con el Bupropion ha empezado a desertar como prescripción favorecida por los hospitales llegando solo a un `r Bup`% .
+
+###Admisiones causadas por enfermedades relacionadas al consumo de tabaco
+Al examinarse los datos obtenidos de la clasificación de las enferemedades que tienen relación con el consumo del tabaco. Se pudo apreciar que las enfermedades circulatorias (*Heart diseases*), seguidas por las respiratorias(*Pneumonia, Influenza*), son las que causan más admisiones a hospitales. Además se puede ver que un factor importante en las enfermedades son aquellas causadas por la edad, esto nos muestra la persistencia de los consumidores y su adicción.  
+
+Estos resultados son dispares con los entregados por la Organización Mundial de la Salud, quienes reportan un mayor impacto en las enferemedades respiratorias, siendo el fumar es responsable de una muerte de cada cinco y causa el 84% de las muertes por cáncer de pulmón, así como el 83% de las muertes por enfermedad pulmonar obstructiva crónica, incluida la bronquitis [@world2003].
+
+
+```{r, out.width="80%", fig.align="left"}
+plot (Graph_Admitions)
+```
+`r fig_cap(4, caption = "Número de admisiones a hospitales relacionados y su relación con las enfermedades causadas y/o asociadas al consumo de tabaco. Las enfermedades fueron categorizadas según el sistema que afecta o la causa evidente registrada (Cancer, Otros).", display = "full")`
+
+###Modeles estadísticos simples para la descripcion de fumadores por precio del tabaco
+
+Como se describió en la metodología, se realizaron diferentes modelos con los datos obtenidos sobre el precio del tabaco y fumadores en el tiempo. Como puede observarse en la Tabla 1, el modelo estadíasticon lineal simple  con un binomio tiene un mejor ajuste que solamente la ecuación de la recta simple, dando un AIC de `r round(InfoFit12$AIC, 2)`  para la recta simple y el binomio respectivamente. 
+
+```{r, }
+kable(InfoFit12, caption = "Ajuste de modelos lineales")
+```
+
+Sin embargo, a pesar de dar un $R^2$ ajustado de `r round(InfoFit12$adj.r.squared,2)` para ambos modelos es bastante adecuado, se realizó un modelo no lineal simple exponencial que se ajustara más al comportamiento de los datos dado un AIC de `r round(InfoFit3$AIC, 2)`, dando como resultado un modelo más adecuado como puede verse en la Figura 5.
+
+```{r, out.width="80%", fig.align="center", warning=FALSE, echo=FALSE}
+plot (Graph_Tendence)
+```
+`r fig_cap(5, caption = "Modelo no lineal ajustado para describir al comportamiento de la media del precio del tabaco y el número de fumadores entre los años 1980 y el 2015.", display = "full")`
+
+```{r, }
+kable(InfoFit3, caption = "Ajuste de modelo no lineal")
+```
+
+
+##Conclusiones
+
+Con toda la información recopilada y expuesta en este trabajo puede verse que la cantidad de fumadores ha disminuido en el tiempo para todos los grupos etarios y sexo, sin embargo, no se encontraron datos sobre la prevalencia de los mismos, por lo que no se puede afirmar que esta haya disminuido igualmente con el tiempo.
+
+También puede observarse la disminución de prescripciones, lo que se condice con el menor número de individuos fumadores. Así como también, han surgido con el tiempo nuevos tratamientos para tratar a los consumidores. Esto es alentador pues el tratamiento de enfermedades relacionadas con el tabaquismo le cuesta al Servicio Nacional de Salud más de £ 1.5 mil millones al año en UK [@world2003].
+
+Podemos afirmar que hay una tendencia a la menor cantidad de consumidores al aumentar el precio del tabaco, medida altamente utilizada en paíces desarrollados. Lo que podría estar explicando la disminución de los consumidores y a su vez las bajas en las prescripciones entregadas en los hospitales. A pesar de todo esto, aún se pueden apreciar la gran cantidad de casos de enfermedades relacionadas con el consumo del tabaco, y surge la necesidad de implementar nuevas medidas para controlar el consumo.
+
+\pagebreak
+
+##Referencias
